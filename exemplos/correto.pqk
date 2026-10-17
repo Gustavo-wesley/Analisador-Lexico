@@ -1,0 +1,31 @@
+// Programa de exemplo em Pasquick (sem erros lexicos)
+program Exemplo;
+var
+  x, y : integer;
+  media : real;
+  nome : string;
+const
+  LIMITE = 10;
+  PI : real = 3.14;
+
+function dobro(n : integer;) : integer;
+begin
+  dobro := n * 2;
+end;
+
+BEGIN
+  { comentário de
+    várias linhas }
+  x := 0;
+  y := 0;
+  nome := 'Pasquick!';
+  (* outro estilo
+     de comentário *)
+  while x < LIMITE do
+  begin
+    x := x + 1;
+    if (x >= 5) E (x <> 7) then
+      y := dobro(x);
+  end;
+  media := (X + Y) / 2.5;
+END.
