@@ -1,0 +1,72 @@
+// Programa correto que usa todas as construcoes da linguagem
+program Completo;
+
+const
+  TAM = 5;
+  TAXA : real = 0.5;
+  SEPARADOR = ',';
+  TITULO : string = 'Resultado';
+
+var
+  notas : real[5];
+  i, soma, contador : integer;
+  media : real;
+  letra : char;
+  texto : string;
+
+procedure mostrar(rotulo : string; valor : real);
+begin
+  writeln(rotulo, ': ', valor)
+end;
+
+function maior(a, b : integer) : integer;
+begin
+  if a > b then
+    maior := a
+  else
+    maior := b
+end;
+
+function fatorial(n : integer) : integer;
+var
+  r : integer;
+begin
+  if n <= 1 then
+    r := 1
+  else
+    r := n * fatorial(n - 1);
+  fatorial := r
+end;
+
+begin
+  { leitura das notas }
+  for i := 1 to TAM do
+  begin
+    read(notas[i]);
+    if notas[i] < 0 then
+      continue;
+    if notas[i] > 10 then
+      break
+  end;
+
+  (* soma com repeat *)
+  soma := 0;
+  contador := 0;
+  repeat
+    contador := contador + 1;
+    soma := soma + maior(contador, 2)
+  until (contador >= TAM) OU (soma > 100);
+
+  media := soma / TAM * TAXA;
+  mostrar(TITULO, media);
+
+  texto := 'abc';
+  letra := texto[2];
+  texto := texto + SEPARADOR + letra;
+
+  i := -fatorial(4);
+  while (i < 0) E (texto <> '') do
+    i := i + 1;
+
+  writeln(texto, SEPARADOR, i);
+end.

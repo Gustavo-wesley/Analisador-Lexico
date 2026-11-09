@@ -1,12 +1,13 @@
 // Programa com erros lexicos de proposito (um de cada tipo)
 program ComErros;
 var
-  idade : integer;
-  nome : string;
-  teste : integer;
+  idade@ : integer;
+  nomeMuitoMaiorQueOPermitido : string;
+  _teste : integer;
 begin
-  idade := 12;
-  nome := 'sem fechar';
-  idade := idade / 2;asdas
+  idade := 12abc;
+  idade := 3.;
+  nome := 'sem fechar;
+  idade := idade # 2;
   { comentario que nunca fecha
-end.}
+end.

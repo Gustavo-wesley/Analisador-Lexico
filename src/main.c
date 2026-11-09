@@ -1,7 +1,8 @@
 /* Chronus - IDE da linguagem Pasquick
-   Trabalho 01 de Compiladores: analisador lexico
+   Compilador: analise lexica, sintatica e semantica a cada tecla
 
-   Atalhos: F5 compila, Ctrl+S salva, Ctrl+V cola.
+   Atalhos: F5 compila, F6 troca a fase (lexico / sintatico / semantico),
+   Ctrl+S salva, Ctrl+V cola.
    Para abrir um arquivo .pqk, arraste ele para a janela. */
 
 #include <stdio.h>
@@ -11,6 +12,7 @@
 #include "interface.h"
 #include "lexer.h"
 #include "erros.h"
+#include "compilador.h"
 
 static char mensagem[160] = "";
 static Color corMensagem;
@@ -25,7 +27,7 @@ static void mostrarMensagem(const char *texto, Color cor) {
 }
 
 static void analisar(void) {
-    analisarFonte(texto);
+    compilarFonte(texto);   /* lexico + sintatico + semantico */
     editorAtualizarCores();
     textoAlterado = 0;
 }
@@ -33,10 +35,29 @@ static void analisar(void) {
 static void compilar(void) {
     analisar();
     abaAtual = ABA_ERROS;
-    if (qtdErros == 0)
-        mostrarMensagem("Compilado: nenhum erro léxico", COR_OK);
+    if (qtdErros == 0 && faseFinal == FASE_SEMANTICA)
+        mostrarMensagem("Compilado: programa correto", COR_OK);
+    else if (qtdErros == 0)
+        mostrarMensagem(TextFormat("Nenhum erro até a fase %s", nomeFaseTela(faseFinal)), COR_OK);
+    else if (faseFinal == FASE_LEXICA)
+        mostrarMensagem(TextFormat("%d erro(s) léxico(s)", qtdErros), COR_ERRO);
+    else if (faseFinal == FASE_SINTATICA)
+        mostrarMensagem(TextFormat("%d erro(s): %d léxico, %d sintático", qtdErros,
+                                   contarErros(FASE_LEXICA), contarErros(FASE_SINTATICA)), COR_ERRO);
     else
-        mostrarMensagem(TextFormat("Compilado: %d erro(s) léxico(s)", qtdErros), COR_ERRO);
+        mostrarMensagem(TextFormat("%d erro(s): %d léxico, %d sintático, %d semântico",
+                                   qtdErros, contarErros(FASE_LEXICA), contarErros(FASE_SINTATICA),
+                                   contarErros(FASE_SEMANTICA)), COR_ERRO);
+}
+
+/* F6: lexico -> sintatico -> semantico -> lexico ... (para apresentar por partes) */
+static void trocarFase(void) {
+    faseFinal = faseFinal == FASE_SEMANTICA ? FASE_LEXICA : (Fase)(faseFinal + 1);
+    analisar();
+    if (faseFinal == FASE_LEXICA) abaAtual = ABA_TOKENS;
+    else if (faseFinal == FASE_SINTATICA) abaAtual = ABA_ARVORE;
+    else abaAtual = ABA_DECLARACOES;
+    mostrarMensagem(TextFormat("Compilando até a fase %s", nomeFaseTela(faseFinal)), COR_MARCA);
 }
 
 static void salvar(void) {
@@ -77,7 +98,10 @@ static void desenharBarraSuperior(Rectangle area) {
     if (botao((Rectangle){ x, area.y + 6, 90, 30 }, "Salvar")) salvar();
     x += 98;
     if (botao((Rectangle){ x, area.y + 6, 150, 30 }, "Compilar (F5)")) compilar();
-    x += 166;
+    x += 158;
+    if (botao((Rectangle){ x, area.y + 6, 220, 30 },
+              TextFormat("Fase: %s (F6)", nomeFaseTela(faseFinal)))) trocarFase();
+    x += 236;
 
     escrever(TextFormat("%s%s", nome, modificado ? " *" : ""), x, area.y + 11, COR_TEXTO);
 
@@ -95,7 +119,7 @@ int main(int argc, char *argv[]) {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
     SetTraceLogLevel(LOG_ERROR);
     InitWindow(1280, 800, "Chronus - IDE da linguagem Pasquick");
-    SetWindowMinSize(800, 500);
+    SetWindowMinSize(900, 500);
     SetExitKey(0);   /* ESC nao fecha a janela */
     SetTargetFPS(60);
 
@@ -127,10 +151,11 @@ int main(int argc, char *argv[]) {
         }
         if (ctrl && IsKeyPressed(KEY_S)) salvar();
         if (IsKeyPressed(KEY_F5)) compilar();
+        if (IsKeyPressed(KEY_F6)) trocarFase();
 
         editorAtualizar(areaEditor);
         if (textoAlterado) {
-            /* analise ao vivo: roda o lexer de novo a cada alteracao */
+            /* analise ao vivo: roda o compilador de novo a cada alteracao */
             analisar();
             confirmarNovo = 0;
         }

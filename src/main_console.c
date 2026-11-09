@@ -1,12 +1,24 @@
-/* Versao de console do analisador lexico do Pasquick.
-   Uso: pasquick_lex arquivo.pqk
-   Serve para testar o lexer antes da IDE Chronus ficar pronta. */
+/* Versao de console do compilador Pasquick (lexico + sintatico + semantico).
+
+   Uso: pasquick arquivo.pqk [-f fase] [-t] [-s] [-a] [-d]
+     -f  ate qual fase compilar: lexico, sintatico ou semantico (padrao)
+     -t  lista de tokens
+     -s  tabela de simbolos (lexer)
+     -a  arvore sintatica (com -f semantico, mostra tambem os tipos)
+     -d  tabela de declaracoes (escopos e tipos)
+   Sem -t/-s/-a/-d mostra tudo; com -f, mostra o resultado daquela fase.
+   Os erros sao sempre mostrados.
+   Retorna 0 se o programa esta correto e 2 se tem erro. */
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "lexer.h"
 #include "simbolos.h"
 #include "erros.h"
+#include "arvore.h"
+#include "semantico.h"
+#include "compilador.h"
 
 static char *lerArquivo(const char *caminho) {
     FILE *f = fopen(caminho, "rb");
@@ -24,7 +36,7 @@ static char *lerArquivo(const char *caminho) {
         fclose(f);
         return NULL;
     }
-    fread(buffer, 1, tam, f);
+    tam = (long)fread(buffer, 1, tam, f);
     buffer[tam] = '\0';
     fclose(f);
     return buffer;
@@ -65,33 +77,122 @@ static void imprimirTabelaSimbolos(void) {
     }
 }
 
+static void imprimirArvore(void) {
+    int i;
+
+    printf("\n=== ARVORE SINTATICA (%d linhas) ===\n", qtdLinhasArvore);
+    if (!faseLigada(FASE_SINTATICA)) {
+        printf("(analise sintatica desligada: use -f sintatico ou -f semantico)\n");
+        return;
+    }
+    for (i = 0; i < qtdLinhasArvore; i++) printf("%s\n", linhasArvore[i].texto);
+}
+
+static void imprimirDeclaracoes(void) {
+    int i;
+
+    printf("\n=== TABELA DE DECLARACOES (%d) ===\n", qtdDeclaracoes);
+    if (!faseLigada(FASE_SEMANTICA)) {
+        printf("(analise semantica desligada: use -f semantico)\n");
+        return;
+    }
+    if (!semanticaExecutada) {
+        printf("(analise semantica nao executada: corrija primeiro os erros sintaticos)\n");
+        return;
+    }
+    printf("%-4s %-16s %-13s %-12s %-16s %-6s %-6s %s\n",
+           "IND", "NOME", "CATEGORIA", "TIPO", "ESCOPO", "NIVEL", "LINHA", "USADA");
+    for (i = 0; i < qtdDeclaracoes; i++) {
+        Declaracao *d = &declaracoes[i];
+        char tipo[48];
+
+        if (d->categoria == DEC_PROCEDIMENTO || d->categoria == DEC_PROGRAMA) strcpy(tipo, "-");
+        else strcpy(tipo, nomeTipo(d->tipo));
+
+        printf("%-4d %-16s %-13s %-12s %-16s %-6d ", i, d->nome, nomeCategoriaDec(d->categoria),
+               tipo, d->escopo, d->nivel);
+        if (d->predefinida) printf("%-6s %s\n", "-", "pre-definido");
+        else printf("%-6d %s\n", d->linha, d->usada ? "sim" : "nao");
+    }
+}
+
 static void imprimirErros(void) {
     int i;
 
-    printf("\n=== ERROS LEXICOS (%d) ===\n", qtdErros);
+    printf("\n=== ERROS ate a fase %s (%d:", nomeFase(faseFinal), qtdErros);
+    printf(" %d lexico(s)", contarErros(FASE_LEXICA));
+    if (faseLigada(FASE_SINTATICA)) printf(", %d sintatico(s)", contarErros(FASE_SINTATICA));
+    if (faseLigada(FASE_SEMANTICA)) printf(", %d semantico(s)", contarErros(FASE_SEMANTICA));
+    printf(") ===\n");
     for (i = 0; i < qtdErros; i++) {
-        printf("Linha %d, coluna %d: %s\n", erros[i].linha, erros[i].coluna, erros[i].mensagem);
+        printf("Linha %d, coluna %d [%s]: %s\n", erros[i].linha, erros[i].coluna,
+               nomeFase(erros[i].fase), erros[i].mensagem);
     }
+    if (qtdErros == 0) {
+        if (faseFinal == FASE_LEXICA) printf("Nenhum erro lexico.\n");
+        else if (faseFinal == FASE_SINTATICA) printf("Programa sintaticamente correto.\n");
+        else printf("Programa correto.\n");
+    }
+    else if (faseLigada(FASE_SEMANTICA) && !semanticaExecutada) printf("(analise semantica nao executada por causa dos erros sintaticos)\n");
 }
 
 int main(int argc, char *argv[]) {
     char *texto;
+    const char *caminho = NULL;
+    int verTokens = 0, verSimbolos = 0, verArvore = 0, verDeclaracoes = 0;
+    int escolheuFase = 0;
+    int i;
 
-    if (argc < 2) {
-        printf("Uso: %s arquivo.pqk\n", argv[0]);
-        return 1;
+    for (i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-t") == 0) verTokens = 1;
+        else if (strcmp(argv[i], "-s") == 0) verSimbolos = 1;
+        else if (strcmp(argv[i], "-a") == 0) verArvore = 1;
+        else if (strcmp(argv[i], "-d") == 0) verDeclaracoes = 1;
+        else if (strcmp(argv[i], "-f") == 0 && i + 1 < argc) {
+            const char *f = argv[++i];
+            escolheuFase = 1;
+            if (strcmp(f, "lexico") == 0) faseFinal = FASE_LEXICA;
+            else if (strcmp(f, "sintatico") == 0) faseFinal = FASE_SINTATICA;
+            else if (strcmp(f, "semantico") == 0) faseFinal = FASE_SEMANTICA;
+            else {
+                printf("Fase desconhecida '%s' (use lexico, sintatico ou semantico)\n", f);
+                return 1;
+            }
+        }
+        else caminho = argv[i];
     }
 
-    texto = lerArquivo(argv[1]);
+    if (caminho == NULL) {
+        printf("Uso: %s arquivo.pqk [-f fase] [-t] [-s] [-a] [-d]\n", argv[0]);
+        printf("  -f lexico | sintatico | semantico   ate qual fase compilar (padrao: semantico)\n");
+        printf("  -t tokens   -s tabela de simbolos   -a arvore   -d declaracoes\n");
+        printf("  sem -t/-s/-a/-d mostra tudo (ou so o da fase escolhida com -f)\n");
+        return 1;
+    }
+    if (!verTokens && !verSimbolos && !verArvore && !verDeclaracoes) {
+        if (!escolheuFase) {
+            verTokens = verSimbolos = verArvore = verDeclaracoes = 1;
+        } else if (faseFinal == FASE_LEXICA) {
+            verTokens = verSimbolos = 1;       /* resultado do lexico */
+        } else if (faseFinal == FASE_SINTATICA) {
+            verArvore = 1;                     /* resultado do sintatico */
+        } else {
+            verArvore = verDeclaracoes = 1;    /* arvore com tipos + escopos */
+        }
+    }
+
+    texto = lerArquivo(caminho);
     if (texto == NULL) {
-        printf("Nao foi possivel abrir '%s'\n", argv[1]);
+        printf("Nao foi possivel abrir '%s'\n", caminho);
         return 1;
     }
 
-    analisarFonte(texto);
+    compilarFonte(texto);
 
-    imprimirTokens();
-    imprimirTabelaSimbolos();
+    if (verTokens) imprimirTokens();
+    if (verSimbolos) imprimirTabelaSimbolos();
+    if (verArvore) imprimirArvore();
+    if (verDeclaracoes) imprimirDeclaracoes();
     imprimirErros();
 
     free(texto);

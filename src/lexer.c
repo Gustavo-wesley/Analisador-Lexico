@@ -140,6 +140,19 @@ static void emitirNumero(void) {
     t->ehReal = strchr(t->lexema, '.') != NULL;
 }
 
+/* Comentario que nunca fecha: antes ele engolia o resto do arquivo inteiro
+   (inclusive o "end." do final). Agora fazemos igual ao literal: o comentario
+   vai so ate o fim da linha onde abriu, e a leitura continua dali. */
+static void fecharComentarioNaLinha(const char *msg, int tamanho) {
+    adicionarErro(iniLinha, iniColuna, tamanho, msg);
+
+    /* volta para onde o comentario abriu e anda ate o fim daquela linha */
+    pos = iniPos;
+    linha = iniLinha;
+    coluna = iniColuna;
+    while (atual() != '\n' && atual() != '\0') avancar();
+}
+
 static void erroCaractereInvalido(void) {
     char msg[128];
     char c = atual();
@@ -271,7 +284,7 @@ void analisarFonte(const char *texto) {
         case Q_COMENT_CHAVE:
             if (c == '}') { avancar(); estado = Q0; }
             else if (c == '\0') {
-                adicionarErro(iniLinha, iniColuna, 1, "Comentario { nao foi fechado");
+                fecharComentarioNaLinha("Comentario { nao foi fechado", 1);
                 estado = Q0;
             }
             else avancar();
@@ -285,7 +298,7 @@ void analisarFonte(const char *texto) {
         case Q_COMENT_PAR:
             if (c == '*') { avancar(); estado = Q_COMENT_PAR_AST; }
             else if (c == '\0') {
-                adicionarErro(iniLinha, iniColuna, 2, "Comentario (* nao foi fechado");
+                fecharComentarioNaLinha("Comentario (* nao foi fechado", 2);
                 estado = Q0;
             }
             else avancar();
@@ -295,7 +308,7 @@ void analisarFonte(const char *texto) {
             if (c == ')') { avancar(); estado = Q0; }
             else if (c == '*') avancar();
             else if (c == '\0') {
-                adicionarErro(iniLinha, iniColuna, 2, "Comentario (* nao foi fechado");
+                fecharComentarioNaLinha("Comentario (* nao foi fechado", 2);
                 estado = Q0;
             }
             else { avancar(); estado = Q_COMENT_PAR; }

@@ -4,6 +4,9 @@
 #include "lexer.h"
 #include "simbolos.h"
 #include "erros.h"
+#include "arvore.h"
+#include "semantico.h"
+#include "compilador.h"
 
 Font fonteMono;
 float tamFonte = 18;
@@ -11,7 +14,16 @@ float charW = 10;
 float charH = 22;
 int abaAtual = ABA_TOKENS;
 
-static int scrollPainel[3] = { 0, 0, 0 };
+static int scrollPainel[QTD_ABAS];
+
+const char *nomeFaseTela(Fase fase) {
+    switch (fase) {
+        case FASE_LEXICA:    return "léxico";
+        case FASE_SINTATICA: return "sintático";
+        case FASE_SEMANTICA: return "semântico";
+    }
+    return "?";
+}
 
 void carregarFonte(void) {
     int codepoints[224];
@@ -88,10 +100,47 @@ static void desenharLinhaSimbolo(int i, float x, float y) {
     escrever(s->linha > 0 ? TextFormat("%d", s->linha) : "-", x + 60 * charW, y, COR_APAGADO);
 }
 
+/* arvore: o tipo calculado pelo semantico ("   <integer>") sai em outra cor */
+static void desenharLinhaArvore(int i, float x, float y) {
+    const char *t = linhasArvore[i].texto;
+    const char *tipo = strstr(t, "   <");
+    char parte[100];
+    int n;
+
+    if (tipo == NULL) {
+        escrever(t, x, y, COR_TEXTO);
+        return;
+    }
+    n = (int)(tipo - t);
+    memcpy(parte, t, n);
+    parte[n] = '\0';
+    escrever(parte, x, y, COR_TEXTO);
+    escrever(tipo, x + n * charW, y, COR_NUMERO);
+}
+
+static void desenharLinhaDeclaracao(int i, float x, float y) {
+    Declaracao *d = &declaracoes[i];
+    const char *tipo = (d->categoria == DEC_PROCEDIMENTO || d->categoria == DEC_PROGRAMA)
+                       ? "-" : nomeTipo(d->tipo);
+
+    escrever(TextFormat("%d", i), x, y, COR_APAGADO);
+    escrever(d->nome, x + 5 * charW, y, d->predefinida ? COR_APAGADO : COR_MARCA);
+    escrever(nomeCategoriaDec(d->categoria), x + 22 * charW, y, COR_RESERVADA);
+    escrever(tipo, x + 36 * charW, y, COR_NUMERO);
+    escrever(d->escopo, x + 50 * charW, y, COR_TEXTO);
+    if (d->predefinida) {
+        escrever("pré-definido", x + 66 * charW, y, COR_APAGADO);
+    } else {
+        escrever(TextFormat("%d", d->linha), x + 66 * charW, y, COR_APAGADO);
+        escrever(d->usada ? "sim" : "não", x + 74 * charW, y, d->usada ? COR_TEXTO : COR_MARCA);
+    }
+}
+
 static void desenharLinhaErro(int i, float x, float y) {
     Erro *e = &erros[i];
     escrever(TextFormat("Linha %d, coluna %d", e->linha, e->coluna), x, y, COR_ERRO);
-    escrever(e->mensagem, x + 24 * charW, y, COR_TEXTO);
+    escrever(nomeFaseTela(e->fase), x + 22 * charW, y, COR_MARCA);
+    escrever(e->mensagem, x + 34 * charW, y, COR_TEXTO);
 }
 
 int desenharPainel(Rectangle area, int *linhaDestino, int *colunaDestino) {
@@ -107,14 +156,16 @@ int desenharPainel(Rectangle area, int *linhaDestino, int *colunaDestino) {
     DrawLine((int)area.x, (int)area.y, (int)(area.x + area.width), (int)area.y, COR_BARRA);
 
     /* abas */
-    for (i = 0; i < 3; i++) {
-        Rectangle r = { area.x + 6 + i * 190, area.y + 4, 184, alturaAbas - 4 };
+    for (i = 0; i < QTD_ABAS; i++) {
+        Rectangle r = { area.x + 6 + i * 176, area.y + 4, 170, alturaAbas - 4 };
         const char *rotulo;
         Color cor = COR_TEXTO;
         float largura;
 
         if (i == ABA_TOKENS) rotulo = TextFormat("Tokens (%d)", qtdTokens);
         else if (i == ABA_SIMBOLOS) rotulo = TextFormat("Símbolos (%d)", qtdSimbolos);
+        else if (i == ABA_ARVORE) rotulo = TextFormat("Árvore (%d)", qtdLinhasArvore);
+        else if (i == ABA_DECLARACOES) rotulo = TextFormat("Declarações (%d)", qtdDeclaracoes);
         else {
             rotulo = TextFormat("Erros (%d)", qtdErros);
             cor = qtdErros > 0 ? COR_ERRO : COR_OK;
@@ -132,6 +183,8 @@ int desenharPainel(Rectangle area, int *linhaDestino, int *colunaDestino) {
 
     if (abaAtual == ABA_TOKENS) total = qtdTokens;
     else if (abaAtual == ABA_SIMBOLOS) total = qtdSimbolos;
+    else if (abaAtual == ABA_ARVORE) total = qtdLinhasArvore;
+    else if (abaAtual == ABA_DECLARACOES) total = semanticaExecutada ? qtdDeclaracoes : 0;
     else total = qtdErros;
 
     /* rolagem com a rodinha do mouse */
@@ -154,11 +207,38 @@ int desenharPainel(Rectangle area, int *linhaDestino, int *colunaDestino) {
         escrever("TOKEN", x + 24 * charW, y, COR_APAGADO);
         escrever("CATEGORIA", x + 40 * charW, y, COR_APAGADO);
         escrever("LINHA", x + 60 * charW, y, COR_APAGADO);
+    } else if (abaAtual == ABA_ARVORE) {
+        if (!faseLigada(FASE_SINTATICA))
+            escrever("Análise sintática desligada: mude a fase com F6.", x, y, COR_MARCA);
+        else if (faseLigada(FASE_SEMANTICA))
+            escrever("ÁRVORE SINTÁTICA  (entre < > o tipo calculado pelo semântico; clique para ir ao código)",
+                     x, y, COR_APAGADO);
+        else
+            escrever("ÁRVORE SINTÁTICA  (sem tipos: o semântico está desligado; clique para ir ao código)",
+                     x, y, COR_APAGADO);
+    } else if (abaAtual == ABA_DECLARACOES) {
+        if (!faseLigada(FASE_SEMANTICA)) {
+            escrever("Análise semântica desligada: mude a fase com F6.", x, y, COR_MARCA);
+        } else if (!semanticaExecutada) {
+            escrever("Análise semântica não executada: corrija primeiro os erros sintáticos.", x, y, COR_MARCA);
+        } else {
+            escrever("IND", x, y, COR_APAGADO);
+            escrever("NOME", x + 5 * charW, y, COR_APAGADO);
+            escrever("CATEGORIA", x + 22 * charW, y, COR_APAGADO);
+            escrever("TIPO", x + 36 * charW, y, COR_APAGADO);
+            escrever("ESCOPO", x + 50 * charW, y, COR_APAGADO);
+            escrever("LINHA", x + 66 * charW, y, COR_APAGADO);
+            escrever("USADA", x + 74 * charW, y, COR_APAGADO);
+        }
     } else if (qtdErros == 0) {
-        escrever("Nenhum erro léxico encontrado.", x, y, COR_OK);
+        if (faseFinal == FASE_SEMANTICA)
+            escrever("Nenhum erro encontrado: o programa está correto.", x, y, COR_OK);
+        else
+            escrever(TextFormat("Nenhum erro até a fase %s.", nomeFaseTela(faseFinal)), x, y, COR_OK);
     } else {
         escrever("POSIÇÃO", x, y, COR_APAGADO);
-        escrever("MENSAGEM  (clique para ir até o erro)", x + 24 * charW, y, COR_APAGADO);
+        escrever("FASE", x + 22 * charW, y, COR_APAGADO);
+        escrever("MENSAGEM  (clique para ir até o erro)", x + 34 * charW, y, COR_APAGADO);
     }
     y += charH;
 
@@ -172,6 +252,8 @@ int desenharPainel(Rectangle area, int *linhaDestino, int *colunaDestino) {
 
         if (abaAtual == ABA_TOKENS) desenharLinhaToken(i, x, y);
         else if (abaAtual == ABA_SIMBOLOS) desenharLinhaSimbolo(i, x, y);
+        else if (abaAtual == ABA_ARVORE) desenharLinhaArvore(i, x, y);
+        else if (abaAtual == ABA_DECLARACOES) desenharLinhaDeclaracao(i, x, y);
         else desenharLinhaErro(i, x, y);
 
         /* clicar numa linha leva o cursor do editor para aquela posicao */
@@ -184,7 +266,15 @@ int desenharPainel(Rectangle area, int *linhaDestino, int *colunaDestino) {
                 *linhaDestino = erros[i].linha;
                 *colunaDestino = erros[i].coluna;
                 clicou = 1;
-            } else if (tabelaSimbolos[i].linha > 0) {
+            } else if (abaAtual == ABA_ARVORE && linhasArvore[i].linha > 0) {
+                *linhaDestino = linhasArvore[i].linha;
+                *colunaDestino = linhasArvore[i].coluna;
+                clicou = 1;
+            } else if (abaAtual == ABA_DECLARACOES && declaracoes[i].linha > 0) {
+                *linhaDestino = declaracoes[i].linha;
+                *colunaDestino = declaracoes[i].coluna;
+                clicou = 1;
+            } else if (abaAtual == ABA_SIMBOLOS && tabelaSimbolos[i].linha > 0) {
                 *linhaDestino = tabelaSimbolos[i].linha;
                 *colunaDestino = 1;
                 clicou = 1;
@@ -199,8 +289,10 @@ int desenharPainel(Rectangle area, int *linhaDestino, int *colunaDestino) {
 
 void desenharBarraStatus(Rectangle area, int linhaCursor, int colunaCursor) {
     int i;
-    const char *esquerda = TextFormat("Pasquick   Lin %d, Col %d   |   %d tokens   |   %d símbolos",
-                                      linhaCursor, colunaCursor, qtdTokens, qtdSimbolos);
+    const char *esquerda = TextFormat("Pasquick   Lin %d, Col %d   |   %d tokens   |   %d símbolos"
+                                      "   |   fase: até o %s",
+                                      linhaCursor, colunaCursor, qtdTokens, qtdSimbolos,
+                                      nomeFaseTela(faseFinal));
     float y = area.y + (area.height - tamFonte) / 2;
 
     DrawRectangleRec(area, qtdErros > 0 ? (Color){ 110, 30, 30, 255 } : (Color){ 0, 90, 156, 255 });
@@ -209,14 +301,14 @@ void desenharBarraStatus(Rectangle area, int linhaCursor, int colunaCursor) {
     /* mostra o erro da linha onde esta o cursor */
     for (i = 0; i < qtdErros; i++) {
         if (erros[i].linha == linhaCursor) {
-            const char *msg = TextFormat("Erro: %s", erros[i].mensagem);
+            const char *msg = TextFormat("Erro %s: %s", nomeFaseTela(erros[i].fase), erros[i].mensagem);
             float largura = MeasureTextEx(fonteMono, msg, tamFonte, 0).x;
             escrever(msg, area.x + area.width - largura - 10, y, RAYWHITE);
             return;
         }
     }
     {
-        const char *msg = qtdErros > 0 ? TextFormat("%d erro(s) léxico(s)", qtdErros) : "Sem erros léxicos";
+        const char *msg = qtdErros > 0 ? TextFormat("%d erro(s)", qtdErros) : "Programa correto";
         float largura = MeasureTextEx(fonteMono, msg, tamFonte, 0).x;
         escrever(msg, area.x + area.width - largura - 10, y, RAYWHITE);
     }

@@ -1,0 +1,28 @@
+// Programa com erros sintaticos de proposito (o compilador continua depois de cada um)
+program ErrosSintaticos;
+var
+  x, y : integer;
+  z : ;
+  nome : string;
+
+function soma(a, b : integer) : integer;
+begin
+  soma := a + b
+end;
+
+begin
+  x := 10
+  y := 20;
+  if x > y then
+    x := y;
+  else
+    y := x;
+  while x < 100
+    x := x * 2;
+  nome = 'teste';
+  y := (x + 3;
+  x := soma(x, y;
+  repeat
+    x := x - 1
+  until ;
+end

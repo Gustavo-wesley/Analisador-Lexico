@@ -360,8 +360,11 @@ void editorAtualizarCores(void) {
         for (j = t->inicio; j < t->inicio + t->bytes && j < tamTexto; j++) classe[j] = (unsigned char)c;
     }
 
-    /* trechos com erro ficam vermelhos (senao pareceriam comentario) */
+    /* trechos com erro lexico nao viram token e ficam vermelhos (senao pareceriam
+       comentario). Erros sintaticos e semanticos caem em tokens validos e so
+       ganham o sublinhado. */
     for (i = 0; i < qtdErros; i++) {
+        if (erros[i].fase != FASE_LEXICA) continue;
         int ini = posicaoDe(erros[i].linha - 1, erros[i].coluna);
         int fim = posicaoDe(erros[i].linha - 1, erros[i].coluna + erros[i].tamanho);
         for (j = ini; j < fim; j++) classe[j] = CLASSE_ERRO;
@@ -483,7 +486,8 @@ void editorDesenhar(Rectangle area) {
     /* dica com a mensagem quando o mouse passa em cima do erro */
     if (erroDoMouse >= 0) {
         Erro *e = &erros[erroDoMouse];
-        const char *msg = TextFormat("Erro léxico (lin %d, col %d): %s", e->linha, e->coluna, e->mensagem);
+        const char *msg = TextFormat("Erro %s (lin %d, col %d): %s", nomeFaseTela(e->fase),
+                                     e->linha, e->coluna, e->mensagem);
         float largura = MeasureTextEx(fonteMono, msg, tamFonte, 0).x + 16;
         float x = mouse.x + 12;
         float y = mouse.y + 18;

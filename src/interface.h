@@ -2,6 +2,7 @@
 #define INTERFACE_H
 
 #include "raylib.h"
+#include "erros.h"
 
 /* Fonte monoespacada: todo caractere tem a mesma largura (charW) */
 extern Font fonteMono;
@@ -25,7 +26,7 @@ extern float charH;
 #define COR_OK          (Color){ 90, 200, 120, 255 }
 #define COR_MARCA       (Color){ 255, 170, 60, 255 }
 
-typedef enum { ABA_TOKENS, ABA_SIMBOLOS, ABA_ERROS } Aba;
+typedef enum { ABA_TOKENS, ABA_SIMBOLOS, ABA_ARVORE, ABA_DECLARACOES, ABA_ERROS, QTD_ABAS } Aba;
 extern int abaAtual;
 
 void carregarFonte(void);
@@ -34,7 +35,10 @@ void escrever(const char *texto, float x, float y, Color cor);
 /* Desenha um botao e retorna 1 se foi clicado */
 int botao(Rectangle r, const char *rotulo);
 
-/* Painel de baixo com as abas Tokens / Simbolos / Erros.
+/* Nome da fase com acento, para mostrar na tela */
+const char *nomeFaseTela(Fase fase);
+
+/* Painel de baixo com as abas Tokens / Simbolos / Arvore / Declaracoes / Erros.
    Retorna 1 se o usuario clicou numa linha (e preenche linha/coluna para o editor pular) */
 int desenharPainel(Rectangle area, int *linhaDestino, int *colunaDestino);
 

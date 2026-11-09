@@ -8,7 +8,8 @@ if not exist build mkdir build
 
 gcc -Wall -std=c99 -Isrc -I%RAYLIB% -o build\chronus.exe ^
     src\main.c src\editor.c src\interface.c ^
-    src\lexer.c src\simbolos.c src\erros.c src\tokens.c ^
+    src\compilador.c src\lexer.c src\sintatico.c src\semantico.c src\arvore.c ^
+    src\simbolos.c src\erros.c src\tokens.c ^
     -L%RAYLIB% -lraylib -lopengl32 -lgdi32 -lwinmm -mwindows
 
 if errorlevel 1 (
